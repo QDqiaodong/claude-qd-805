@@ -1,6 +1,7 @@
 package com.salt.field.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 import com.salt.field.common.FieldDict;
 
@@ -31,6 +32,18 @@ public class PondVO {
     private Integer gridRow;
     private Integer gridCol;
     private Boolean harvestable;
+
+    // ---- 雨后停工闭环（读时由 RainStopService 按最新雨情装配，刷新页面保持一致） ----
+    /** 池子是否处于雨后 24h 窗口内 */
+    private Boolean rainActive;
+    /** 触发窗口的有效降雨时刻（停工起算时刻） */
+    private LocalDateTime rainAt;
+    /** 触发窗口的降雨量 mm */
+    private BigDecimal rainfall;
+    /** 最早可复工时刻（rainAt + 24h） */
+    private LocalDateTime rainResumeAt;
+    /** 同池当前处于「雨情停工」的作业单数 */
+    private Long rainStoppedCount;
 
     public static PondVO of(Long id,
                             String pondNo,

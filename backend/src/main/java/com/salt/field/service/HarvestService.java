@@ -29,18 +29,18 @@ public class HarvestService {
     private final HarvestTaskRepository harvestRepository;
     private final PondRepository pondRepository;
     private final SaltPlatformRepository platformRepository;
-    private final WeatherService weatherService;
+    private final RainStopService rainStopService;
     private final FieldLogService fieldLogService;
 
     public HarvestService(HarvestTaskRepository harvestRepository,
                           PondRepository pondRepository,
                           SaltPlatformRepository platformRepository,
-                          WeatherService weatherService,
+                          RainStopService rainStopService,
                           FieldLogService fieldLogService) {
         this.harvestRepository = harvestRepository;
         this.pondRepository = pondRepository;
         this.platformRepository = platformRepository;
-        this.weatherService = weatherService;
+        this.rainStopService = rainStopService;
         this.fieldLogService = fieldLogService;
     }
 
@@ -59,6 +59,8 @@ public class HarvestService {
                 .filter(java.util.Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        long stoppedCount = rows.stream().filter(r -> "RAIN_STOP".equals(r.getTaskStatus())).count();
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("workDate", day);
         result.put("tasks", rows);
@@ -66,17 +68,21 @@ public class HarvestService {
         result.put("doneTons", doneTons == null ? BigDecimal.ZERO : doneTons);
         result.put("planTons", FieldDict.DAILY_PLAN_TONS);
         result.put("scheduledTons", plannedTons);
+        result.put("rainStoppedCount", stoppedCount);
         return result;
     }
 
     /**
-     * 下达收盐作业。三条业务规则按顺序校验，命中即抛 BizException：
+     * 下达收盐作业。持池行悲观锁后按顺序校验，命中即抛 BizException：
      * ① 池板状况为「需修」不允许排作业；② 卤度未达 25°Bé 不允许；③ 雨后 24 小时内不允许。
+     * 锁保证与同时发生的降雨登记串行化。
      */
     @Transactional
     public HarvestVO create(HarvestCreateRequest request) {
-        Pond pond = pondRepository.findById(request.getPondId())
-                .orElseThrow(() -> new BizException("池子不存在：id=" + request.getPondId()));
+        if (!pondRepository.existsById(request.getPondId())) {
+            throw new BizException("池子不存在：id=" + request.getPondId());
+        }
+        Pond pond = pondRepository.lockById(request.getPondId());
         SaltPlatform platform = platformRepository.findById(request.getPlatformId())
                 .orElseThrow(() -> new BizException("坨台不存在：id=" + request.getPlatformId()));
 
@@ -93,12 +99,13 @@ public class HarvestService {
                     + FieldDict.HARVEST_MIN_BRINE + "°Bé");
         }
 
-        // 规则③：雨后 24 小时
-        WeatherLog rain = weatherService.latestRain(pond.getId());
+        // 规则③：雨后 24 小时（锁内复核最新雨情，拦截「排作业与降雨同时发生」）
+        WeatherLog rain = rainStopService.activeRain(pond.getId());
         if (rain != null) {
             throw new BizException("雨后 " + FieldDict.RAIN_BLOCK_HOURS + " 小时内不允许收盐：池号 " + pond.getPondNo()
-                    + " 于 " + rain.getRecordedAt() + " 记录降雨 "
-                    + rain.getRainfall().stripTrailingZeros().toPlainString() + "mm");
+                    + " 于 " + rain.getRecordedAt().format(RainStopService.DT) + " 记录降雨 "
+                    + rain.getRainfall().stripTrailingZeros().toPlainString() + "mm，最早可复工 "
+                    + rainStopService.resumeAt(rain).format(RainStopService.DT));
         }
 
         BigDecimal tons = request.getTons();
@@ -130,14 +137,41 @@ public class HarvestService {
         return toVO(saved);
     }
 
-    /** 改作业状态；置为「已完成」时把收盐量计入坨台库存 */
+    /**
+     * 人工改作业状态（PLANNED/WORKING/DONE/CANCELED）。
+     * <ul>
+     *   <li>RAIN_STOP 只能经「复工确认」退出，直接改入/改出一律拦截；</li>
+     *   <li>持池行锁后复核雨后窗口：窗口内不允许开始（WORKING），更不允许完成入账（DONE），
+     *       杜绝「绕过雨后窗口完成入账」；</li>
+     *   <li>置为 DONE 时把收盐量计入坨台库存。</li>
+     * </ul>
+     */
     @Transactional
     public HarvestVO updateStatus(Long taskId, String status) {
-        if (!FieldDict.isValidTaskStatus(status)) {
-            throw new BizException("作业状态取值有误：" + status + "（应为 PLANNED/WORKING/DONE/CANCELED）");
+        if (!FieldDict.isManualAssignableTaskStatus(status)) {
+            throw new BizException("作业状态取值有误：" + status
+                    + "（人工仅可置 PLANNED/WORKING/DONE/CANCELED；雨情停工由系统自动设置，需走复工确认）");
         }
         HarvestTask task = harvestRepository.findById(taskId)
                 .orElseThrow(() -> new BizException("作业单不存在：id=" + taskId));
+        // 统一加锁顺序：先池行、再作业单行。锁上的读是当前读，
+        // 能看到锁等待期间降雨登记事务刚提交的 RAIN_STOP 与最新雨情
+        Pond pond = pondRepository.lockById(task.getPondId());
+        task = harvestRepository.lockById(taskId);
+        if ("RAIN_STOP".equals(task.getTaskStatus())) {
+            throw new BizException("作业单 " + task.getTaskNo()
+                    + " 处于「雨情停工」，须先由调度员确认复工，不能直接改为「"
+                    + FieldDict.taskStatusName(status) + "」");
+        }
+        WeatherLog rain = rainStopService.activeRain(task.getPondId());
+        if (rain != null && ("WORKING".equals(status) || "DONE".equals(status))) {
+            throw new BizException("雨后 " + FieldDict.RAIN_BLOCK_HOURS + " 小时窗口内禁止"
+                    + ("DONE".equals(status) ? "完成入账" : "开始作业") + "：池号 " + pond.getPondNo()
+                    + " 于 " + rain.getRecordedAt().format(RainStopService.DT) + " 降雨 "
+                    + rain.getRainfall().stripTrailingZeros().toPlainString() + "mm，最早 "
+                    + rainStopService.resumeAt(rain).format(RainStopService.DT) + " 可复工");
+        }
+
         String old = task.getTaskStatus();
         task.setTaskStatus(status);
         if ("DONE".equals(status) && !"DONE".equals(old)) {
@@ -163,6 +197,12 @@ public class HarvestService {
         return toVO(saved);
     }
 
+    /** 调度员确认雨后复工（三项条件由 RainStopService 在锁内逐条校验） */
+    @Transactional
+    public HarvestVO resume(Long taskId, String operator) {
+        return toVO(rainStopService.resume(taskId, operator));
+    }
+
     private String nextTaskNo() {
         return "HS" + LocalDate.now().toString().replace("-", "") + String.format("%03d", harvestRepository.count() + 1);
     }
@@ -171,12 +211,27 @@ public class HarvestService {
         Pond pond = pondRepository.findById(t.getPondId()).orElse(null);
         SaltPlatform platform = t.getPlatformId() == null ? null
                 : platformRepository.findById(t.getPlatformId()).orElse(null);
-        return HarvestVO.of(t.getId(), t.getTaskNo(), t.getPondId(),
+        HarvestVO v = HarvestVO.of(t.getId(), t.getTaskNo(), t.getPondId(),
                 pond == null ? null : pond.getPondNo(),
                 pond == null ? null : pond.getName(),
                 t.getPlatformId(),
                 platform == null ? null : platform.getPlatformNo(),
                 t.getWorkDate(), t.getTeamName(), t.getStartHour(),
                 t.getDurationHours(), t.getTons(), t.getWorkMode(), t.getTaskStatus(), t.getOperator());
+        v.setPrevStatus(t.getPrevStatus());
+        v.setPrevStatusName(FieldDict.taskStatusName(t.getPrevStatus()));
+        v.setStopReason(t.getStopReason());
+        v.setStopStartedAt(t.getStopStartedAt());
+        v.setResumeAt(t.getResumeAt());
+        v.setRainfallSnapshot(t.getRainfallSnapshot());
+        if ("RAIN_STOP".equals(t.getTaskStatus()) && pond != null) {
+            List<String> blockers = rainStopService.resumeBlockers(pond);
+            v.setCanResume(blockers.isEmpty());
+            v.setResumeBlockers(blockers);
+        } else {
+            v.setCanResume(false);
+            v.setResumeBlockers(java.util.Collections.emptyList());
+        }
+        return v;
     }
 }

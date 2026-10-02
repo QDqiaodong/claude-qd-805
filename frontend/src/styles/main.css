@@ -170,6 +170,18 @@ body {
   color: #ffd54f;
 }
 
+/* 雨后停工窗口：池区树小雨标 */
+.sf-pond-rain {
+  flex: 0 0 auto;
+  background: #1e88e5;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 3px;
+  padding: 0 4px;
+  line-height: 15px;
+}
+
 .sf-side-foot {
   padding: 10px 14px;
   font-size: 11px;
@@ -325,6 +337,18 @@ body {
   padding: 0 5px;
   border-radius: 8px;
   align-self: flex-start;
+}
+
+/* 雨后停工窗口：顶部池号 chips 上的雨停角标 */
+.sf-chip-rain {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 5px;
+  border-radius: 8px;
+  align-self: flex-start;
+  background: #e3f2fd;
+  color: #1565c0;
+  border: 1px dashed #1e88e5;
 }
 
 .sf-body {

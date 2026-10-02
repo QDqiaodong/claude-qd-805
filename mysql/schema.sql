@@ -55,7 +55,13 @@ CREATE TABLE IF NOT EXISTS harvest_task (
   duration_hours  DECIMAL(4,1) COMMENT '作业时长（小时）',
   tons            DECIMAL(8,2) COMMENT '收盐吨数',
   work_mode       VARCHAR(16) COMMENT '作业方式 MACHINE机械/MANUAL人工',
-  task_status     VARCHAR(16) COMMENT '状态 PLANNED待作业/WORKING作业中/DONE已完成/CANCELED已取消',
+  task_status     VARCHAR(16) COMMENT '状态 PLANNED待作业/WORKING作业中/RAIN_STOP雨情停工/DONE已完成/CANCELED已取消',
+  prev_status     VARCHAR(16) COMMENT '雨情停工前的状态 PLANNED/WORKING，复工后恢复',
+  stop_reason     VARCHAR(128) COMMENT '停工原因（雨情：降雨量 + 雨后窗口）',
+  stop_started_at DATETIME COMMENT '停工起算时刻（有效降雨登记时刻）',
+  resume_at       DATETIME COMMENT '最早可复工时刻（起算 + 24 小时）',
+  rain_log_id     BIGINT COMMENT '触发停工/重新起算窗口的气象记录',
+  rainfall_snapshot DECIMAL(6,2) COMMENT '停工时的降雨量 mm',
   operator        VARCHAR(32) COMMENT '调度员'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收盐作业与班次';
 

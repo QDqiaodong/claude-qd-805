@@ -46,10 +46,26 @@
 
 | 规则 | 触发点 | 提示 |
 | --- | --- | --- |
-| 卤度未达 25°Bé 不允许收盐 | `HarvestService#create` | 给出当前值与门槛 |
-| 雨后 24 小时内不允许收盐 | `HarvestService#create` | 给出降雨时刻与雨量 |
-| 池板状况「需修」不允许排作业 | `HarvestService#create` | 给出池号 |
+| 卤度未达 25°Bé 不允许收盐 | `HarvestService#create` / `RainStopService#resumeBlockers` | 给出当前值与门槛 |
+| 雨后 24 小时内不允许收盐 | `HarvestService#create` / `#updateStatus` | 给出降雨时刻与雨量、最早复工时刻 |
+| 池板状况「需修」不允许排作业 | `HarvestService#create` / `#resumeBlockers` | 给出池号 |
+| 有效降雨立即停工 | `WeatherService#create → RainStopService#applyRainfall` | 同池 PLANNED/WORKING 单自动转 RAIN_STOP；DONE/CANCELED 不动 |
+| 复工三条件 | `POST /api/harvest/{id}/resume` | 满 24h + 卤度≥25°Bé + 池板非需修，不满足时逐条列出拦截项；停工期间再降雨按新降雨重新起算 |
 | 出仓量不得超过库存 | `PlatformService#outbound` | 给出库存与本次吨数 |
+
+### 雨后停工 — 复工确认闭环
+
+- **状态机**：`PLANNED / WORKING ──有效降雨──▶ RAIN_STOP（记录 prevStatus、停工原因、起算时刻、
+  最早复工时刻、触发降雨与雨量快照）──调度员确认复工──▶ 恢复 prevStatus`。`DONE/CANCELED`
+  永远不参与停工；`RAIN_STOP` 不能被人工直接改入/改出。
+- **同步显示**：班次条停工单（蓝灰雨丝样式）、池子平面图蓝雨标、池区树/chips 雨停角标，
+  都带停工原因、起算时刻、最早可复工时刻；池子视图额外返回同池停工单数。
+- **并发**：降雨登记、作业下达/开始/完成、复工确认全部在事务内先对池行加
+  `PESSIMISTIC_WRITE` 行锁，同池变化在数据库层串行化；窗口内开始作业或完成入账一律拦截，
+  不会出现「既运行又停工 / 重复停工记录 / 绕过雨后窗口入账」。同一条降雨重复应用幂等。
+- **可追溯**：每次自动停工写「雨情自动停工」作业记录，停工期间再降雨写「雨情窗口顺延」，
+  人工复工写「雨后复工确认」，均经 `field_log`（@Any 指向池子）留痕；刷新页面后状态、时间、
+  原因从持久化字段与最新雨情一致装配；启动时 `RainStopReconciler` 按窗口内最新降雨自动对账。
 
 ## 模块
 

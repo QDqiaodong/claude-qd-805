@@ -20,6 +20,16 @@
 
       <div class="hs-wrap" v-loading="loading">
         <div class="hs-board">
+          <!-- 雨情停工汇总条：任一单处于雨后停工即置顶展示 -->
+          <el-alert
+            v-if="rainStoppedCount > 0"
+            type="warning"
+            show-icon
+            :closable="false"
+            class="hs-rain-banner"
+            :title="`同池 ${rainStoppedCount} 单收盐作业因有效降雨进入「雨情停工」，雨后 24 小时窗口内禁止开始与完成入账；点停工班次条由调度员确认复工`"
+          />
+
           <!-- 时间刻度 -->
           <div class="hs-axis">
             <div class="hs-axis-label">班组 / 池号</div>
@@ -38,14 +48,14 @@
                 v-for="t in group.tasks"
                 :key="t.id"
                 class="hs-bar"
-                :class="['is-' + t.taskStatus.toLowerCase()]"
+                :class="['is-' + String(t.taskStatus).toLowerCase()]"
                 :style="barStyle(t)"
-                :title="`${t.pondNo} ${t.teamName} ${t.tons}吨 ${t.taskStatusName}`"
+                :title="barTitle(t)"
                 @click="openStatus(t)"
               >
                 <span class="hs-bar-pond">{{ t.pondNo }}</span>
                 <span class="hs-bar-tons">{{ Number(t.tons || 0).toFixed(0) }}t</span>
-                <span class="hs-bar-mode">{{ t.workModeName }}</span>
+                <span class="hs-bar-mode">{{ t.taskStatus === 'RAIN_STOP' ? '雨停 ' + fmtHM(t.stopStartedAt) : t.workModeName }}</span>
               </div>
             </div>
           </div>
@@ -92,26 +102,89 @@
       </div>
     </div>
 
-    <!-- 改作业状态 -->
-    <el-dialog v-model="statusDlg" title="调整作业状态" width="420px">
+    <!-- 调整作业状态 / 雨后复工确认 -->
+    <el-dialog
+      v-model="statusDlg"
+      :title="current && current.taskStatus === 'RAIN_STOP' ? '雨后停工 · 复工确认' : '调整作业状态'"
+      width="480px"
+    >
       <div v-if="current">
         <div class="sf-muted" style="margin-bottom: 10px">
           {{ current.taskNo }} · {{ current.pondNo }} {{ current.pondName }} · {{ current.teamName }} ·
           {{ current.tons }} 吨 → {{ current.platformNo }}
         </div>
-        <el-radio-group v-model="nextStatus">
-          <el-radio-button value="PLANNED">待作业</el-radio-button>
-          <el-radio-button value="WORKING">作业中</el-radio-button>
-          <el-radio-button value="DONE">已完成</el-radio-button>
-          <el-radio-button value="CANCELED">已取消</el-radio-button>
-        </el-radio-group>
-        <div class="sf-muted" style="margin-top: 10px">
-          置为「已完成」时，收盐量会计入去向坨台库存。
-        </div>
+
+        <!-- 雨情停工：原因 / 起算 / 最早复工 + 三条件确认 -->
+        <template v-if="current.taskStatus === 'RAIN_STOP'">
+          <el-descriptions :column="1" size="small" border style="margin-bottom: 12px">
+            <el-descriptions-item label="当前状态">
+              <el-tag type="warning" size="small">雨情停工</el-tag>
+              （停工前：{{ current.prevStatusName }}）
+            </el-descriptions-item>
+            <el-descriptions-item label="停工原因">{{ current.stopReason }}</el-descriptions-item>
+            <el-descriptions-item>
+              <template #label>停工起算</template>
+              {{ fmtFull(current.stopStartedAt) }}
+            </el-descriptions-item>
+            <el-descriptions-item label="最早可复工">
+              <b style="color: #1565c0">{{ fmtFull(current.resumeAt) }}</b>
+            </el-descriptions-item>
+          </el-descriptions>
+
+          <div class="sf-card-title" style="margin: 4px 0 8px">复工条件（任一不满足即被拦截）</div>
+          <div v-for="(b, i) in resumeChecklist" :key="i" class="hs-check" :class="b.ok ? 'is-ok' : 'is-no'">
+            <span>{{ b.ok ? '✓' : '✕' }}</span>{{ b.text }}
+          </div>
+
+          <el-alert
+            v-if="(current.resumeBlockers || []).length"
+            type="error"
+            show-icon
+            :closable="false"
+            style="margin-top: 10px"
+            title="当前不能复工，拦截项："
+          >
+            <div v-for="(b, i) in current.resumeBlockers" :key="i">· {{ b }}</div>
+          </el-alert>
+          <el-alert
+            v-else
+            type="success"
+            show-icon
+            :closable="false"
+            style="margin-top: 10px"
+            title="三项条件均满足，可确认复工；确认后班次恢复为停工前状态并留下复工作业记录"
+          />
+
+          <el-input
+            v-model="resumeOperator"
+            size="small"
+            placeholder="确认人（调度员）"
+            style="margin-top: 12px"
+          />
+        </template>
+
+        <!-- 普通状态调整 -->
+        <template v-else>
+          <el-radio-group v-model="nextStatus">
+            <el-radio-button value="PLANNED">待作业</el-radio-button>
+            <el-radio-button value="WORKING">作业中</el-radio-button>
+            <el-radio-button value="DONE">已完成</el-radio-button>
+            <el-radio-button value="CANCELED">已取消</el-radio-button>
+          </el-radio-group>
+          <div class="sf-muted" style="margin-top: 10px">
+            置为「已完成」时，收盐量会计入去向坨台库存；雨后窗口内开始/完成会被拦截。
+          </div>
+        </template>
       </div>
       <template #footer>
         <el-button @click="statusDlg = false">取消</el-button>
-        <el-button type="primary" @click="submitStatus">保存</el-button>
+        <el-button
+          v-if="current && current.taskStatus === 'RAIN_STOP'"
+          type="primary"
+          :disabled="!(current.canResume === true)"
+          @click="submitResume"
+        >确认复工</el-button>
+        <el-button v-else type="primary" @click="submitStatus">保存</el-button>
       </template>
     </el-dialog>
 
@@ -163,7 +236,7 @@
         type="info"
         :closable="false"
         show-icon
-        title="校验规则：卤度未达 25°Bé 不允许收盐；雨后 24 小时内不允许收盐；池板「需修」不允许排作业"
+        title="校验：卤度未达 25°Bé、雨后 24 小时内、池板「需修」均不允许下达；作业后排到降雨会立即自动停工，须满 24 小时且卤度、池板复核合格后由调度员确认复工"
       />
       <template #footer>
         <el-button @click="createDlg = false">取消</el-button>
@@ -194,6 +267,7 @@ const statusDlg = ref(false)
 const createDlg = ref(false)
 const current = ref(null)
 const nextStatus = ref('WORKING')
+const resumeOperator = ref('王立新')
 const createForm = reactive({
   pondId: null,
   platformId: null,
@@ -225,6 +299,37 @@ const percent = computed(() => {
 })
 const ringOffset = computed(() => circumference * (1 - percent.value / 100))
 const teamStats = computed(() => board.value.teamStats || [])
+const rainStoppedCount = computed(() => Number(board.value.rainStoppedCount || 0))
+
+/** 复工三条件清单，ok 与否由后端按最新雨情/卤度/池板逐条算好返回 */
+const resumeChecklist = computed(() => {
+  const t = current.value
+  if (!t) return []
+  const blockers = t.resumeBlockers || []
+  const hit = (kw) => blockers.some((b) => b.includes(kw))
+  return [
+    { ok: !hit('雨后未满'), text: '最近一次有效降雨已满 24 小时（窗口按最新降雨重新起算）' },
+    { ok: !hit('最新卤度'), text: '最新卤度仍不低于 25°Bé' },
+    { ok: !hit('需修'), text: '池板状况不是「需修」' }
+  ]
+})
+
+function fmtHM(v) {
+  if (!v) return ''
+  return String(v).replace('T', ' ').slice(5, 16)
+}
+
+function fmtFull(v) {
+  if (!v) return '-'
+  return String(v).replace('T', ' ').slice(0, 16)
+}
+
+function barTitle(t) {
+  if (t.taskStatus === 'RAIN_STOP') {
+    return `${t.pondNo} ${t.teamName} ${t.tons}吨 雨情停工｜${t.stopReason || ''}`
+  }
+  return `${t.pondNo} ${t.teamName} ${t.tons}吨 ${t.taskStatusName}`
+}
 
 function today() {
   const d = new Date()
@@ -244,8 +349,22 @@ function sumTons(list) {
 
 function openStatus(t) {
   current.value = t
-  nextStatus.value = t.taskStatus
+  nextStatus.value = t.taskStatus === 'RAIN_STOP' ? (t.prevStatus || 'PLANNED') : t.taskStatus
+  resumeOperator.value = t.operator || '王立新'
   statusDlg.value = true
+}
+
+async function submitResume() {
+  try {
+    const saved = await api.resumeHarvest(current.value.id, resumeOperator.value || '调度员')
+    ElMessage.success(`已确认复工：${saved.taskNo} 恢复为「${saved.taskStatusName}」`)
+    statusDlg.value = false
+    await loadBoard()
+    window.dispatchEvent(new Event('salt:data-change'))
+  } catch (e) {
+    ElMessage.error(e.message)
+    await loadBoard().catch(() => {})
+  }
 }
 
 async function submitStatus() {
@@ -256,6 +375,8 @@ async function submitStatus() {
     await loadBoard()
   } catch (e) {
     ElMessage.error(e.message)
+    // 可能是登记降雨同时发生导致状态被服务端改为雨情停工，刷新以服务端为准
+    await loadBoard().catch(() => {})
   }
 }
 
@@ -389,6 +510,43 @@ onMounted(async () => {
 .hs-bar.is-canceled {
   background: linear-gradient(135deg, #b0bec5, #90a4ae);
   text-decoration: line-through;
+}
+
+/* 雨情停工：蓝灰雨丝底纹 + 警示描边，绝不与「作业中」同色 */
+.hs-bar.is-rain_stop {
+  background:
+    repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.18) 0 6px, rgba(255, 255, 255, 0) 6px 12px),
+    linear-gradient(135deg, #5b7fa6, #345070);
+  border: 1px dashed #ffd54f;
+}
+
+.hs-bar.is-rain_stop .hs-bar-mode {
+  opacity: 1;
+  color: #ffe9a8;
+}
+
+.hs-rain-banner {
+  margin: 6px 0 12px;
+}
+
+.hs-check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.hs-check.is-ok {
+  background: #edf7ed;
+  color: #1b5e20;
+}
+
+.hs-check.is-no {
+  background: #fdecea;
+  color: #b71c1c;
 }
 
 .hs-bar-pond {

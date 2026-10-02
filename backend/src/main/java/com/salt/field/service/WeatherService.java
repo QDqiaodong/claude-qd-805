@@ -25,10 +25,14 @@ public class WeatherService {
 
     private final WeatherLogRepository weatherRepository;
     private final PondRepository pondRepository;
+    private final RainStopService rainStopService;
 
-    public WeatherService(WeatherLogRepository weatherRepository, PondRepository pondRepository) {
+    public WeatherService(WeatherLogRepository weatherRepository,
+                          PondRepository pondRepository,
+                          RainStopService rainStopService) {
         this.weatherRepository = weatherRepository;
         this.pondRepository = pondRepository;
+        this.rainStopService = rainStopService;
     }
 
     /** 近 N 天的日汇总（蒸发量 / 降雨量 / 平均卤度 / 是否可收盐） */
@@ -80,10 +84,20 @@ public class WeatherService {
         return rains.isEmpty() ? null : rains.get(0);
     }
 
+    /**
+     * 登记气象/卤度记录。
+     *
+     * <p>闭环关键路径：当本次为有效降雨（rainfall &gt; 0）时，在同一事务、同一池行悲观锁内，
+     * 立即把同池尚未完成（PLANNED/WORKING）的收盐作业转为「雨情停工」，
+     * 已停工的则以新降雨重新起算 24h 窗口；DONE/CANCELED 不动。
+     */
     @Transactional
-    public WeatherLog create(WeatherCreateRequest request) {
-        Pond pond = pondRepository.findById(request.getPondId())
-                .orElseThrow(() -> new BizException("池子不存在：id=" + request.getPondId()));
+    public Map<String, Object> create(WeatherCreateRequest request) {
+        if (!pondRepository.existsById(request.getPondId())) {
+            throw new BizException("池子不存在：id=" + request.getPondId());
+        }
+        // 先锁池行：与作业开始/完成/复工确认串行化，避免边录雨边推进作业
+        Pond pond = pondRepository.lockById(request.getPondId());
         WeatherLog log = new WeatherLog();
         log.setPondId(pond.getId());
         log.setRecordDate(request.getRecordDate() == null ? LocalDate.now() : request.getRecordDate());
@@ -98,7 +112,24 @@ public class WeatherService {
             pond.setBrineDegree(log.getBrineDegree());
             pondRepository.save(pond);
         }
-        return weatherRepository.save(log);
+        WeatherLog saved = weatherRepository.save(log);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("weatherLog", saved);
+        result.put("rainfall", saved.getRainfall());
+        result.put("rainActive", saved.getRainfall().signum() > 0);
+        if (saved.getRainfall().signum() > 0) {
+            // 有效降雨：立即停工 / 重新起算窗口（持锁调用，同事务提交）
+            int affected = rainStopService.applyRainfall(pond, saved, saved.getRecorder());
+            result.put("stopStartedAt", saved.getRecordedAt());
+            result.put("resumeAt", saved.getRecordedAt().plusHours(FieldDict.RAIN_BLOCK_HOURS));
+            result.put("stoppedTaskCount", affected);
+        } else {
+            result.put("stopStartedAt", null);
+            result.put("resumeAt", null);
+            result.put("stoppedTaskCount", 0);
+        }
+        return result;
     }
 
     private BigDecimal nz(BigDecimal v) {

@@ -47,8 +47,14 @@ public class WeatherController {
     }
 
     @PostMapping
-    public ApiResponse<WeatherLog> create(@Valid @RequestBody WeatherCreateRequest request) {
-        return ApiResponse.success("气象与卤度记录已登记", weatherService.create(request));
+    public ApiResponse<Map<String, Object>> create(@Valid @RequestBody WeatherCreateRequest request) {
+        Map<String, Object> result = weatherService.create(request);
+        boolean rain = Boolean.TRUE.equals(result.get("rainActive"));
+        int stopped = ((Number) result.getOrDefault("stoppedTaskCount", 0)).intValue();
+        String msg = rain
+                ? "有效降雨已登记，同池 " + stopped + " 单未完成作业已进入雨情停工（24 小时内禁止收盐）"
+                : "气象与卤度记录已登记";
+        return ApiResponse.success(msg, result);
     }
 
     @GetMapping("/date")

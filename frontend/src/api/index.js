@@ -64,6 +64,8 @@ export const api = {
   harvestBoard: (date) => http.get('/harvest/board', { params: date ? { date } : {} }).then(unwrap),
   createHarvest: (data) => http.post('/harvest', data).then(unwrap),
   updateHarvestStatus: (id, taskStatus) => http.put(`/harvest/${id}/status`, { taskStatus }).then(unwrap),
+  // 雨后复工确认（满 24h + 卤度≥25°Bé + 池板非需修；不满足时后端逐条返回拦截项）
+  resumeHarvest: (id, operator) => http.post(`/harvest/${id}/resume`, { operator }).then(unwrap),
 
   // ---- 坨台 ----
   platforms: () => http.get('/platforms').then(unwrap),

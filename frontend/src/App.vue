@@ -26,6 +26,7 @@
               @click="pickPond(pond.id)"
             >
               <span class="sf-pond-dot" :style="{ background: statusColor(pond.pondStatus) }"></span>
+              <span v-if="pond.rainActive" class="sf-pond-rain" title="雨后停工窗口内">雨</span>
               <span class="sf-pond-no">{{ pond.pondNo }}</span>
               <span class="sf-pond-name">{{ pond.name }}</span>
               <span class="sf-pond-deg">{{ Number(pond.brineDegree || 0).toFixed(1) }}°</span>
@@ -97,6 +98,9 @@
               class="sf-chip-status"
               :style="{ background: statusColor(pond.pondStatus) + '22', color: statusColor(pond.pondStatus) }"
             >{{ pond.pondStatusName }}</span>
+            <span v-if="pond.rainActive" class="sf-chip-rain" title="雨后 24 小时停工窗口内">
+              雨停×{{ pond.rainStoppedCount || 0 }}
+            </span>
           </div>
         </div>
       </div>
@@ -109,7 +113,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { api, brineColor, POND_STATUS_COLOR } from './api'
 import { currentLocation, currentRoute, navigate, routes } from './router'
 
@@ -157,4 +161,8 @@ async function loadAll() {
 }
 
 onMounted(loadAll)
+
+// 降雨登记 / 雨后复工确认后，池区树、chips、概览与当前页一并按服务端状态刷新
+onMounted(() => window.addEventListener('salt:data-change', loadAll))
+onBeforeUnmount(() => window.removeEventListener('salt:data-change', loadAll))
 </script>

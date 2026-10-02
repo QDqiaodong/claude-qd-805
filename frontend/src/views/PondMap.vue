@@ -61,7 +61,22 @@
                 :y="cell.y + 74"
                 text-anchor="middle"
                 :class="textClass(cell.pond.brineDegree) + ' sf-map-sub'"
-              >{{ cell.pond.pondStatusName }} · 深 {{ cell.pond.brineDepth }}cm</text>
+              >{{ cell.pond.rainActive ? `雨情停工 · ${fmtHM(cell.pond.rainAt)}起` : `${cell.pond.pondStatusName} · 深 ${cell.pond.brineDepth}cm` }}</text>
+              <!-- 雨后窗口蓝色雨标 -->
+              <g v-if="cell.pond.rainActive">
+                <circle
+                  :cx="cell.x + 14"
+                  :cy="cell.y + 14"
+                  r="7"
+                  fill="#1e88e5"
+                />
+                <text
+                  :x="cell.x + 14"
+                  :y="cell.y + 18"
+                  text-anchor="middle"
+                  style="font-size: 10px; font-weight: 700; fill: #fff; pointer-events: none"
+                >雨</text>
+              </g>
               <circle
                 v-if="cell.pond.boardStatus === 'REPAIR'"
                 :cx="cell.x + cell.w - 14"
@@ -86,7 +101,7 @@
               <span>{{ item.label }}</span>
             </div>
           </div>
-          <span class="sf-muted">门槛 25°Bé 方可下达收盐作业（红点＝池板需修）</span>
+          <span class="sf-muted">门槛 25°Bé 方可下达收盐作业（红点＝池板需修 · 蓝雨标＝雨后停工窗口内）</span>
         </div>
       </div>
     </div>
@@ -119,8 +134,28 @@
           <el-descriptions-item label="当前卤度">{{ active.brineDegree }} °Bé</el-descriptions-item>
           <el-descriptions-item label="卤水深度">{{ active.brineDepth }} cm</el-descriptions-item>
           <el-descriptions-item label="池板状况">{{ active.boardStatusName }}</el-descriptions-item>
-          <el-descriptions-item label="作业状态">{{ active.pondStatusName }}</el-descriptions-item>
+          <el-descriptions-item label="作业状态">
+            {{ active.pondStatusName }}
+            <el-tag v-if="active.rainActive" type="warning" size="small" style="margin-left: 6px">
+              雨情停工 × {{ active.rainStoppedCount || 0 }}
+            </el-tag>
+          </el-descriptions-item>
+          <template v-if="active.rainActive">
+            <el-descriptions-item label="停工起算">{{ fmtFull(active.rainAt) }}（降雨 {{ Number(active.rainfall || 0).toFixed(1) }}mm）</el-descriptions-item>
+            <el-descriptions-item label="最早可复工">
+              <b style="color: #1565c0">{{ fmtFull(active.rainResumeAt) }}</b>
+            </el-descriptions-item>
+          </template>
         </el-descriptions>
+
+        <el-alert
+          v-if="active.rainActive"
+          type="warning"
+          show-icon
+          :closable="false"
+          style="margin-bottom: 12px"
+          :title="`该池处于雨后 24 小时停工窗口：${active.rainStoppedCount || 0} 单未完成作业已自动停工，最早 ${fmtFull(active.rainResumeAt)} 经调度员确认后方可复工`"
+        />
 
         <el-form label-width="96px" size="default">
           <el-form-item label="卤度 °Bé">
@@ -252,6 +287,14 @@ function fmt(v) {
   return v ? String(v).replace('T', ' ') : ''
 }
 
+function fmtHM(v) {
+  return v ? String(v).replace('T', ' ').slice(5, 16) : ''
+}
+
+function fmtFull(v) {
+  return v ? String(v).replace('T', ' ').slice(0, 16) : '-'
+}
+
 function onSvgClick() {
   // 点空白处不关闭抽屉，避免误触
 }
@@ -285,6 +328,7 @@ async function submitBrine() {
     active.value = saved
     await loadAll()
     emit('brine-change')
+    window.dispatchEvent(new Event('salt:data-change'))
   } catch (e) {
     ElMessage.error(e.message)
   }

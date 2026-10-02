@@ -140,7 +140,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 
 const W = 1040
@@ -215,13 +215,30 @@ function pick(p) {
 
 async function submit() {
   try {
-    await api.createWeather({ ...form })
-    ElMessage.success('气象与卤度记录已登记')
+    const res = await api.createWeather({ ...form })
+    if (res && res.rainActive) {
+      ElMessageBox.alert(
+        `降雨 ${Number(res.rainfall || 0).toFixed(1)}mm 已登记（起算 ${fmtDT(res.stopStartedAt)}）。` +
+        `同池 ${res.stoppedTaskCount || 0} 单未完成收盐作业已立即进入「雨情停工」，` +
+        `最早 ${fmtDT(res.resumeAt)} 且卤度 ≥25°Bé、池板非需修时，由调度员在班次条确认复工。`,
+        '雨后停工已触发',
+        { confirmButtonText: '知道了', type: 'warning' }
+      ).catch(() => {})
+    } else {
+      ElMessage.success('气象与卤度记录已登记')
+    }
     dlg.value = false
     await load()
+    if (res && res.rainActive) {
+      window.dispatchEvent(new Event('salt:data-change'))
+    }
   } catch (e) {
     ElMessage.error(e.message)
   }
+}
+
+function fmtDT(v) {
+  return v ? String(v).replace('T', ' ').slice(0, 16) : '-'
 }
 
 async function load() {

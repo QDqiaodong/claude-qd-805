@@ -2,7 +2,10 @@ package com.salt.field.repository;
 
 import java.util.List;
 
+import jakarta.persistence.LockModeType;
+
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -13,6 +16,14 @@ public interface PondRepository extends JpaRepository<Pond, Long> {
     List<Pond> findByAreaIdOrderByGridRowAscGridColAsc(Long areaId);
 
     List<Pond> findByPondStatus(String pondStatus);
+
+    /**
+     * 行级悲观写锁：降雨登记 / 作业开始 / 完成入账 / 复工确认都先锁池行，
+     * 保证同一池子的雨情变化与作业状态变化在数据库层串行化。
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Pond p where p.id = :id")
+    Pond lockById(@Param("id") Long id);
 
     /**
      * 手写 JPQL ②：按池区统计各状态池子数量（左菜单池区树的角标数据）

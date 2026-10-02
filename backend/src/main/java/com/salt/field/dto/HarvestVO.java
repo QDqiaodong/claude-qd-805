@@ -2,6 +2,8 @@ package com.salt.field.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 
 import com.salt.field.common.FieldDict;
 
@@ -32,6 +34,22 @@ public class HarvestVO {
     private String taskStatus;
     private String taskStatusName;
     private String operator;
+
+    // ---- 雨后停工闭环（停工时持久化在作业单上，复工确认时清空） ----
+    /** 停工前状态 PLANNED/WORKING，复工后恢复 */
+    private String prevStatus;
+    private String prevStatusName;
+    /** 停工原因（含降雨量、起算时刻、最早复工时刻） */
+    private String stopReason;
+    /** 停工起算时刻 */
+    private LocalDateTime stopStartedAt;
+    /** 最早可复工时刻 */
+    private LocalDateTime resumeAt;
+    /** 停工时降雨量 mm */
+    private BigDecimal rainfallSnapshot;
+    /** 前端「确认复工」按钮可用性与逐条拦截项（RAIN_STOP 单才计算） */
+    private Boolean canResume;
+    private List<String> resumeBlockers;
 
     public static HarvestVO of(Long id,
                                String taskNo,

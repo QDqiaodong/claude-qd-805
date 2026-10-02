@@ -24,34 +24,43 @@ public class PondService {
     private final PondRepository pondRepository;
     private final PondAreaRepository areaRepository;
     private final FieldLogService fieldLogService;
+    private final RainStopService rainStopService;
 
     public PondService(PondRepository pondRepository,
                        PondAreaRepository areaRepository,
-                       FieldLogService fieldLogService) {
+                       FieldLogService fieldLogService,
+                       RainStopService rainStopService) {
         this.pondRepository = pondRepository;
         this.areaRepository = areaRepository;
         this.fieldLogService = fieldLogService;
+        this.rainStopService = rainStopService;
     }
 
-    /** 左侧池区树：池区 → 池号 */
+    /** 左侧池区树：池区 → 池号（批量装配雨后停工状态） */
     public List<AreaTreeVO> tree() {
-        List<PondArea> areas = areaRepository.findAllByOrderByBandIndexAsc();
+        List<Pond> all = pondRepository.findAll();
+        var rainStates = rainStopService.states(all.stream().map(Pond::getId).toList());
         List<AreaTreeVO> result = new ArrayList<>();
-        for (PondArea area : areas) {
+        for (PondArea area : areaRepository.findAllByOrderByBandIndexAsc()) {
             AreaTreeVO node = AreaTreeVO.of(area.getId(), area.getCode(), area.getName(), area.getAreaType(),
                     area.getAreaMu(), area.getTideGate(), area.getOwnerName(), area.getBandIndex());
             for (Pond pond : pondRepository.findByAreaIdOrderByGridRowAscGridColAsc(area.getId())) {
-                node.getPonds().add(toVO(pond));
+                PondVO vo = toVO(pond);
+                rainStopService.enrichBatch(List.of(vo), rainStates);
+                node.getPonds().add(vo);
             }
             result.add(node);
         }
         return result;
     }
 
-    /** 顶部 chips 条用的扁平池号列表 */
+    /** 顶部 chips 条用的扁平池号列表（批量装配雨后停工状态） */
     public List<PondVO> flatPonds() {
+        List<Pond> ponds = pondRepository.findAll();
+        var rainStates = rainStopService.states(ponds.stream().map(Pond::getId).toList());
         List<PondVO> list = new ArrayList<>();
-        pondRepository.findAll().forEach(p -> list.add(toVO(p)));
+        ponds.forEach(p -> list.add(toVO(p)));
+        rainStopService.enrichBatch(list, rainStates);
         list.sort((a, b) -> a.getPondNo().compareTo(b.getPondNo()));
         return list;
     }
@@ -61,12 +70,13 @@ public class PondService {
     }
 
     public PondVO detail(Long pondId) {
-        return toVO(require(pondId));
+        return rainStopService.enrich(toVO(require(pondId)), require(pondId));
     }
 
     /**
      * 登记卤度 / 卤水深度 / 池板状况。
      * 规则：池板状况与卤度共同决定池子作业状态（需修 → 修池；≥25°Bé → 待收；≥20°Bé → 结晶；否则晒卤）。
+     * 注意：测卤不改变雨后窗口——窗口只由有效降雨重新起算。
      */
     @Transactional
     public PondVO registerBrine(Long pondId, BrineRegisterRequest request) {
@@ -94,7 +104,7 @@ public class PondService {
         fieldLogService.write("BRINE", saved,
                 "测卤 " + degree + "°Bé，卤水深 " + depth + "cm，池板" + FieldDict.boardStatusName(boardStatus),
                 request.getOperator() == null ? "测卤员" : request.getOperator());
-        return toVO(saved);
+        return rainStopService.enrich(toVO(saved), saved);
     }
 
     private String resolveStatus(String boardStatus, BigDecimal degree) {

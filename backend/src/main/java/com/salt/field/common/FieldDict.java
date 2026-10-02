@@ -54,10 +54,11 @@ public final class FieldDict {
             "MACHINE", "机械",
             "MANUAL", "人工");
 
-    /** 作业状态 */
+    /** 作业状态（RAIN_STOP 由系统在雨后自动设置，人工不能直接改入/改出） */
     private static final Map<String, String> TASK_STATUS = Map.of(
             "PLANNED", "待作业",
             "WORKING", "作业中",
+            "RAIN_STOP", "雨情停工",
             "DONE", "已完成",
             "CANCELED", "已取消");
 
@@ -140,6 +141,16 @@ public final class FieldDict {
 
     public static boolean isValidTaskStatus(String v) {
         return v != null && TASK_STATUS.containsKey(v);
+    }
+
+    /** 人工改状态接口允许直接写入的状态；雨情停工只能由系统进入、由复工确认退出 */
+    public static boolean isManualAssignableTaskStatus(String v) {
+        return "PLANNED".equals(v) || "WORKING".equals(v) || "DONE".equals(v) || "CANCELED".equals(v);
+    }
+
+    /** 尚未完成、可被降雨立即停工的作业状态 */
+    public static boolean isOpenTaskStatus(String v) {
+        return "PLANNED".equals(v) || "WORKING".equals(v);
     }
 
     public static boolean isValidBoardStatus(String v) {
