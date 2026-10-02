@@ -42,7 +42,8 @@ export const POND_STATUS_COLOR = {
   SUN: '#7cb342',
   CRYST: '#43a047',
   WAIT: '#f9a825',
-  REPAIR: '#e53935'
+  REPAIR: '#e53935',
+  RAIN_STOP: '#1e88e5'
 }
 
 export const api = {
@@ -64,6 +65,7 @@ export const api = {
   harvestBoard: (date) => http.get('/harvest/board', { params: date ? { date } : {} }).then(unwrap),
   createHarvest: (data) => http.post('/harvest', data).then(unwrap),
   updateHarvestStatus: (id, taskStatus) => http.put(`/harvest/${id}/status`, { taskStatus }).then(unwrap),
+  resumeHarvest: (id, operator) => http.post(`/harvest/${id}/resume`, { operator }).then(unwrap),
 
   // ---- 坨台 ----
   platforms: () => http.get('/platforms').then(unwrap),

@@ -2,13 +2,19 @@ package com.salt.field.repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 
 import com.salt.field.domain.HarvestTask;
 import com.salt.field.dto.TeamHarvestStat;
+
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.QueryHint;
 
 public interface HarvestTaskRepository extends JpaRepository<HarvestTask, Long> {
 
@@ -29,4 +35,15 @@ public interface HarvestTaskRepository extends JpaRepository<HarvestTask, Long> 
 
     @Query("select t from HarvestTask t where t.pondId = :pondId order by t.workDate desc")
     List<HarvestTask> findByPond(@Param("pondId") Long pondId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "3000"))
+    @Query("select t from HarvestTask t where t.id = :id")
+    Optional<HarvestTask> findByIdForUpdate(@Param("id") Long id);
+
+    /** 雨后登记时只需影响仍未完成的作业；DONE/CANCELED 保持原状。 */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "3000"))
+    @Query("select t from HarvestTask t where t.pondId = :pondId and t.taskStatus in ('PLANNED','WORKING','RAIN_STOPPED') order by t.id asc")
+    List<HarvestTask> findOpenByPondForUpdate(@Param("pondId") Long pondId);
 }

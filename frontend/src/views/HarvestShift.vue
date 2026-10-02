@@ -38,12 +38,12 @@
                 v-for="t in group.tasks"
                 :key="t.id"
                 class="hs-bar"
-                :class="['is-' + t.taskStatus.toLowerCase()]"
+                :class="['is-' + barStatus(t).toLowerCase()]"
                 :style="barStyle(t)"
-                :title="`${t.pondNo} ${t.teamName} ${t.tons}吨 ${t.taskStatusName}`"
+                :title="barTitle(t)"
                 @click="openStatus(t)"
               >
-                <span class="hs-bar-pond">{{ t.pondNo }}</span>
+                <span class="hs-bar-pond">{{ t.pondNo }}<em v-if="t.rainStopped" class="hs-rain-dot">雨</em></span>
                 <span class="hs-bar-tons">{{ Number(t.tons || 0).toFixed(0) }}t</span>
                 <span class="hs-bar-mode">{{ t.workModeName }}</span>
               </div>
@@ -99,19 +99,47 @@
           {{ current.taskNo }} · {{ current.pondNo }} {{ current.pondName }} · {{ current.teamName }} ·
           {{ current.tons }} 吨 → {{ current.platformNo }}
         </div>
-        <el-radio-group v-model="nextStatus">
+        <el-alert
+          v-if="current && current.rainStopped"
+          :type="current.canResume ? 'success' : 'warning'"
+          :closable="false"
+          show-icon
+          style="margin: 12px 0"
+        >
+          <template #title>
+            <div class="rain-alert-title">雨情停工 · 复工确认</div>
+            <div>{{ current.stopReason }}</div>
+            <div>停工起算：{{ fmtTime(current.stoppedAt) }}</div>
+            <div>最新降雨：{{ fmtTime(current.rainAt) }}，{{ Number(current.rainAmount || 0).toFixed(1) }}mm</div>
+            <div>最早可复工：{{ fmtTime(current.earliestResumeAt) }}</div>
+            <div v-if="current.resumeBlockers && current.resumeBlockers.length">
+              <b>拦截项：</b>
+              <span v-for="(b, i) in current.resumeBlockers" :key="b">
+                {{ i + 1 }}. {{ b }}<br v-if="i < current.resumeBlockers.length - 1">
+              </span>
+            </div>
+            <div v-else>三项条件均已满足，可由调度员确认复工。</div>
+          </template>
+        </el-alert>
+        <el-radio-group v-model="nextStatus" :disabled="current && current.rainStopped">
           <el-radio-button value="PLANNED">待作业</el-radio-button>
           <el-radio-button value="WORKING">作业中</el-radio-button>
           <el-radio-button value="DONE">已完成</el-radio-button>
           <el-radio-button value="CANCELED">已取消</el-radio-button>
         </el-radio-group>
         <div class="sf-muted" style="margin-top: 10px">
-          置为「已完成」时，收盐量会计入去向坨台库存。
+          置为「已完成」时，收盐量会计入去向坨台库存；停工班次必须先复工，不能绕过雨后窗口入账。
         </div>
       </div>
       <template #footer>
         <el-button @click="statusDlg = false">取消</el-button>
-        <el-button type="primary" @click="submitStatus">保存</el-button>
+        <el-button
+          v-if="current && current.rainStopped"
+          :type="current.canResume ? 'success' : 'warning'"
+          :disabled="!current.canResume"
+          @click="submitResume"
+        >确认复工</el-button>
+        <el-button v-else type="primary" @click="submitStatus">保存</el-button>
       </template>
     </el-dialog>
 
@@ -232,6 +260,20 @@ function today() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
+function barStatus(t) {
+  return t.rainStopped ? 'RAIN_STOPPED' : t.taskStatus
+}
+
+function barTitle(t) {
+  const base = `${t.pondNo} ${t.teamName} ${t.tons}吨 ${t.taskStatusName}`
+  if (!t.rainStopped) return base
+  return `${base}\n${t.stopReason}\n停工起算：${fmtTime(t.stoppedAt)}\n最早复工：${fmtTime(t.earliestResumeAt)}`
+}
+
+function fmtTime(v) {
+  return v ? String(v).replace('T', ' ').slice(0, 16) : '—'
+}
+
 function barStyle(t) {
   const left = ((Number(t.startHour || 0) - HOUR_START) / HOUR_SPAN) * 100
   const width = (Number(t.durationHours || 0) / HOUR_SPAN) * 100
@@ -256,6 +298,19 @@ async function submitStatus() {
     await loadBoard()
   } catch (e) {
     ElMessage.error(e.message)
+  }
+}
+
+async function submitResume() {
+  if (!current.value?.canResume) return
+  try {
+    const saved = await api.resumeHarvest(current.value.id, current.value.operator || '王立新')
+    ElMessage.success(`已确认复工，作业恢复为「${saved.previousStatusName || saved.taskStatusName}」`)
+    statusDlg.value = false
+    await loadBoard()
+  } catch (e) {
+    ElMessage.error(e.message)
+    await loadBoard()
   }
 }
 
@@ -380,6 +435,21 @@ onMounted(async () => {
 
 .hs-bar.is-working {
   background: linear-gradient(135deg, #43a047, #1b5e20);
+}
+
+.hs-bar.is-rain_stopped {
+  background: repeating-linear-gradient(45deg, #1e88e5 0 8px, #1565c0 8px 16px);
+  border: 1px solid #0d47a1;
+}
+
+.hs-rain-dot {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.22);
+  font-style: normal;
+  font-size: 10px;
 }
 
 .hs-bar.is-done {

@@ -20,6 +20,7 @@ import com.salt.field.domain.HarvestTask;
 import com.salt.field.domain.Pond;
 import com.salt.field.domain.SaltPlatform;
 import com.salt.field.domain.SaltTarget;
+import com.salt.field.repository.HarvestRainStopRepository;
 import com.salt.field.dto.DispatchTaskVO;
 import com.salt.field.dto.FieldLogCreateRequest;
 import com.salt.field.dto.FieldLogVO;
@@ -46,6 +47,7 @@ public class FieldLogService {
     private final EquipmentRepository equipmentRepository;
     private final PondAreaRepository areaRepository;
     private final HarvestTaskRepository harvestRepository;
+    private final HarvestRainStopRepository harvestRainStopRepository;
     private final WeatherLogRepository weatherRepository;
 
     public FieldLogService(FieldLogRepository logRepository,
@@ -55,6 +57,7 @@ public class FieldLogService {
                            EquipmentRepository equipmentRepository,
                            PondAreaRepository areaRepository,
                            HarvestTaskRepository harvestRepository,
+                           HarvestRainStopRepository harvestRainStopRepository,
                            WeatherLogRepository weatherRepository) {
         this.logRepository = logRepository;
         this.dispatchRepository = dispatchRepository;
@@ -63,6 +66,7 @@ public class FieldLogService {
         this.equipmentRepository = equipmentRepository;
         this.areaRepository = areaRepository;
         this.harvestRepository = harvestRepository;
+        this.harvestRainStopRepository = harvestRainStopRepository;
         this.weatherRepository = weatherRepository;
     }
 
@@ -205,7 +209,9 @@ public class FieldLogService {
         }
         v.setTodayEvaporation(evap);
         v.setTodayRainfall(rain);
-        v.setWaitingPondCount(pondRepository.findByPondStatus("WAIT").stream().count());
+        v.setWaitingPondCount(pondRepository.findByPondStatus("WAIT").stream()
+                .filter(p -> harvestRainStopRepository.countActiveByPondId(p.getId()) == 0)
+                .count());
         v.setRepairingPondCount(pondRepository.findByPondStatus("REPAIR").stream().count());
         List<String> teams = new ArrayList<>();
         harvestRepository.statByTeam(today).forEach(s -> teams.add(s.teamName()));

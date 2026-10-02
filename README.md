@@ -24,7 +24,7 @@
 
 - 后端：Spring Boot 3.3.0 / Java 17 / Spring Data JPA（Hibernate 6.5）/ MySQL 8 / Redis
 - 前端：Vue 3 / Element Plus / Vite（主题色 `#1b5e20`）
-- 建表：`ddl-auto: none`，表与种子数据全部来自 `mysql/schema.sql`
+- 建表：`ddl-auto: none`，新库表与种子数据来自 `mysql/schema.sql`；已有库由启动时的幂等迁移补齐雨后停工字段
 
 ## 数据访问的两条标识
 
@@ -46,9 +46,11 @@
 
 | 规则 | 触发点 | 提示 |
 | --- | --- | --- |
-| 卤度未达 25°Bé 不允许收盐 | `HarvestService#create` | 给出当前值与门槛 |
-| 雨后 24 小时内不允许收盐 | `HarvestService#create` | 给出降雨时刻与雨量 |
-| 池板状况「需修」不允许排作业 | `HarvestService#create` | 给出池号 |
+| 卤度未达 25°Bé 不允许收盐 | `HarvestService#create/start/done` | 给出当前值与门槛 |
+| 雨后 24 小时内不允许收盐 | 降雨登记、作业开始、完成、复工 | 给出降雨时刻、最早可作业/复工时刻 |
+| 有效降雨立即停工同池未完作业 | `RainControlService#applyRain` | 自动写停工记录；停工中再降雨重置窗口 |
+| 复工必须满 24h、卤度≥25°Bé、池板非需修 | `POST /api/harvest/{id}/resume` | 未满足时逐项列出拦截项 |
+| 池板状况「需修」不允许排作业/复工 | `HarvestService#create` / `RainControlService#resume` | 给出池号 |
 | 出仓量不得超过库存 | `PlatformService#outbound` | 给出库存与本次吨数 |
 
 ## 模块
@@ -64,7 +66,7 @@
 | 路径 | 页面 | 操作范式 |
 | --- | --- | --- |
 | `/ponds` | 盐田平面 SVG + 卤度热力 | 平面多边形按卤度着色 + 色带图例 + 右侧抽屉登记 |
-| `/harvest` | 收盐作业班次条 | 横条按时长比例绘制 + 右侧累计进度环 + 点条改状态 |
+| `/harvest` | 收盐作业班次条 | 横条按时长比例绘制 + 右侧累计进度环 + 雨后停工/复工确认 + 点条改状态 |
 | `/weather` | 气象蒸发量折线 | 主/次双折线 + 雨日蓝色竖标 + 点数据点看明细 |
 | `/platforms` | 盐坨库存立方体卡 | CSS 3D 立方体按库存缩放 + 登记出仓 |
 

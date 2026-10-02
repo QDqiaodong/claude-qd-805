@@ -3,6 +3,7 @@ package com.salt.field.repository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -33,6 +34,15 @@ public interface WeatherLogRepository extends JpaRepository<WeatherLog, Long> {
             + "where w.pondId = :pondId and w.rainfall > 0 and w.recordedAt >= :from "
             + "order by w.recordedAt desc")
     List<WeatherLog> findRecentRain(@Param("pondId") Long pondId, @Param("from") LocalDateTime from);
+
+    @Query("select w from WeatherLog w where w.pondId = :pondId and w.rainfall > 0 "
+            + "order by w.recordedAt desc, w.id desc")
+    List<WeatherLog> findRainByPond(@Param("pondId") Long pondId);
+
+    default Optional<WeatherLog> findLatestRain(Long pondId) {
+        List<WeatherLog> rains = findRainByPond(pondId);
+        return rains.isEmpty() ? Optional.empty() : Optional.of(rains.get(0));
+    }
 
     @Query("select w from WeatherLog w where w.recordDate = :date order by w.pondId asc")
     List<WeatherLog> findByDate(@Param("date") LocalDate date);

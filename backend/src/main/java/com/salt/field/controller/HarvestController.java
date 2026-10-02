@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.salt.field.common.ApiResponse;
 import com.salt.field.dto.HarvestCreateRequest;
+import com.salt.field.dto.HarvestResumeRequest;
 import com.salt.field.dto.HarvestStatusRequest;
 import com.salt.field.dto.HarvestVO;
 import com.salt.field.service.HarvestService;
@@ -44,10 +45,18 @@ public class HarvestController {
         return ApiResponse.success("收盐作业已下达", harvestService.create(request));
     }
 
-    /** 改作业状态 */
+    /** 改作业状态；雨情停工班次只能通过复工确认接口恢复 */
     @PutMapping("/{id}/status")
     public ApiResponse<HarvestVO> updateStatus(@PathVariable Long id,
                                                @Valid @RequestBody HarvestStatusRequest request) {
         return ApiResponse.success("作业状态已更新", harvestService.updateStatus(id, request.getTaskStatus()));
+    }
+
+    /** 雨后复工确认：满 24 小时、卤度≥25°Bé、池板非需修，缺一不可 */
+    @PostMapping("/{id}/resume")
+    public ApiResponse<HarvestVO> resume(@PathVariable Long id,
+                                         @RequestBody(required = false) HarvestResumeRequest request) {
+        String operator = request == null ? null : request.getOperator();
+        return ApiResponse.success("雨后复工已确认", harvestService.resume(id, operator));
     }
 }

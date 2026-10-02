@@ -11,10 +11,12 @@ import com.salt.field.common.BizException;
 import com.salt.field.common.FieldDict;
 import com.salt.field.domain.Pond;
 import com.salt.field.domain.PondArea;
+import com.salt.field.domain.HarvestRainStop;
 import com.salt.field.dto.AreaBrineStat;
 import com.salt.field.dto.AreaTreeVO;
 import com.salt.field.dto.BrineRegisterRequest;
 import com.salt.field.dto.PondVO;
+import com.salt.field.repository.HarvestRainStopRepository;
 import com.salt.field.repository.PondAreaRepository;
 import com.salt.field.repository.PondRepository;
 
@@ -23,13 +25,16 @@ public class PondService {
 
     private final PondRepository pondRepository;
     private final PondAreaRepository areaRepository;
+    private final HarvestRainStopRepository rainStopRepository;
     private final FieldLogService fieldLogService;
 
     public PondService(PondRepository pondRepository,
                        PondAreaRepository areaRepository,
+                       HarvestRainStopRepository rainStopRepository,
                        FieldLogService fieldLogService) {
         this.pondRepository = pondRepository;
         this.areaRepository = areaRepository;
+        this.rainStopRepository = rainStopRepository;
         this.fieldLogService = fieldLogService;
     }
 
@@ -70,7 +75,8 @@ public class PondService {
      */
     @Transactional
     public PondVO registerBrine(Long pondId, BrineRegisterRequest request) {
-        Pond pond = require(pondId);
+        Pond pond = pondRepository.findByIdForUpdate(pondId)
+                .orElseThrow(() -> new BizException("池子不存在：id=" + pondId));
         BigDecimal degree = request.getBrineDegree();
         BigDecimal depth = request.getBrineDepth();
         if (degree == null || degree.compareTo(BigDecimal.ZERO) < 0 || degree.compareTo(BigDecimal.valueOf(60)) > 0) {
@@ -115,13 +121,52 @@ public class PondService {
                 .orElseThrow(() -> new BizException("池子不存在：id=" + pondId));
     }
 
-    public static PondVO toVO(Pond pond) {
+    public PondVO toVO(Pond pond) {
         PondArea area = pond.getArea();
-        return PondVO.of(pond.getId(), pond.getPondNo(), pond.getName(),
+        PondVO vo = PondVO.of(pond.getId(), pond.getPondNo(), pond.getName(),
                 area == null ? null : area.getId(),
                 area == null ? "" : area.getName(),
                 area == null ? "" : area.getAreaType(),
                 pond.getAreaMu(), pond.getBoardStatus(), pond.getBrineDegree(), pond.getBrineDepth(),
                 pond.getPondStatus(), pond.getGridRow(), pond.getGridCol());
+        List<HarvestRainStop> stops = rainStopRepository.findActiveByPondId(pond.getId());
+        fillRainState(vo, stops);
+        if (vo.getRainStopped()) {
+            vo.setHarvestable(false);
+        }
+        return vo;
+    }
+
+    private void fillRainState(PondVO vo, List<HarvestRainStop> stops) {
+        if (stops == null || stops.isEmpty()) {
+            vo.setRainStopped(false);
+            vo.setEffectiveStatus(vo.getPondStatus());
+            vo.setEffectiveStatusName(com.salt.field.common.FieldDict.pondStatusName(vo.getPondStatus()));
+            vo.setStoppedTaskCount(0L);
+            return;
+        }
+
+        HarvestRainStop earliest = stops.stream()
+                .min(java.util.Comparator.comparing(HarvestRainStop::getStoppedAt))
+                .orElse(stops.get(0));
+        HarvestRainStop latest = stops.stream()
+                .max(java.util.Comparator.comparing(HarvestRainStop::getRainAt)
+                        .thenComparing(HarvestRainStop::getLatestWeatherId))
+                .orElse(earliest);
+        java.time.LocalDateTime latestResume = stops.stream()
+                .map(HarvestRainStop::getEarliestResumeAt)
+                .max(java.time.LocalDateTime::compareTo)
+                .orElse(latest.getEarliestResumeAt());
+
+        vo.setRainStopped(true);
+        vo.setEffectiveStatus("RAIN_STOP");
+        vo.setEffectiveStatusName(com.salt.field.common.FieldDict.pondStatusName("RAIN_STOP"));
+        vo.setStopReason(latest.getStopReason());
+        vo.setRainAt(latest.getRainAt());
+        vo.setRainAmount(latest.getRainfall());
+        vo.setStoppedAt(earliest.getStoppedAt());
+        vo.setEarliestResumeAt(latestResume);
+        vo.setStoppedTaskCount((long) stops.size());
+        vo.setStoppedTaskIds(stops.stream().map(HarvestRainStop::getTaskId).toList());
     }
 }

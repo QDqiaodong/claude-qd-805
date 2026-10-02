@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS pond (
   board_status VARCHAR(16) COMMENT '池板状况 GOOD完好/LEAK渗漏/REPAIR需修',
   brine_degree DECIMAL(5,2) COMMENT '当前卤度 °Bé',
   brine_depth  DECIMAL(5,2) COMMENT '卤水深度 cm',
-  pond_status  VARCHAR(16) COMMENT '状态 SUN晒卤/CRYST结晶/WAIT待收/REPAIR修池',
+  pond_status  VARCHAR(16) COMMENT '状态 SUN晒卤/CRYST结晶/WAIT待收/REPAIR修池/RAIN_STOP雨情停工',
   grid_row     INT COMMENT '平面图行号',
   grid_col     INT COMMENT '平面图列号'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='池子台账';
@@ -55,9 +55,38 @@ CREATE TABLE IF NOT EXISTS harvest_task (
   duration_hours  DECIMAL(4,1) COMMENT '作业时长（小时）',
   tons            DECIMAL(8,2) COMMENT '收盐吨数',
   work_mode       VARCHAR(16) COMMENT '作业方式 MACHINE机械/MANUAL人工',
-  task_status     VARCHAR(16) COMMENT '状态 PLANNED待作业/WORKING作业中/DONE已完成/CANCELED已取消',
-  operator        VARCHAR(32) COMMENT '调度员'
+  task_status     VARCHAR(16) COMMENT '状态 PLANNED待作业/WORKING作业中/RAIN_STOPPED雨情停工/DONE已完成/CANCELED已取消',
+  operator        VARCHAR(32) COMMENT '调度员',
+  previous_status VARCHAR(16) COMMENT '雨情停工前状态 PLANNED/WORKING',
+  stopped_at      DATETIME COMMENT '本次雨情停工起算时刻',
+  rain_log_id     BIGINT COMMENT '当前雨情停工/窗口对应的最新降雨记录',
+  rain_weather_id BIGINT COMMENT '最近一次重置24小时窗口的降雨记录',
+  rain_amount     DECIMAL(6,2) COMMENT '触发停工/重置窗口的降雨量 mm',
+  rain_resume_at  DATETIME COMMENT '当前雨后窗口届满、最早可复工时刻',
+  resumed_at      DATETIME COMMENT '人工确认复工时刻',
+  KEY idx_harvest_pond_status (pond_id, task_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收盐作业与班次';
+
+CREATE TABLE IF NOT EXISTS harvest_rain_stop (
+  id                BIGINT AUTO_INCREMENT PRIMARY KEY,
+  task_id           BIGINT NOT NULL COMMENT '收盐作业单',
+  pond_id           BIGINT NOT NULL COMMENT '结晶池',
+  weather_log_id    BIGINT NOT NULL COMMENT '首次触发停工的降雨记录',
+  latest_weather_id BIGINT NOT NULL COMMENT '最新一次有效降雨记录（窗口起算点）',
+  rainfall          DECIMAL(6,2) NOT NULL COMMENT '最新一次有效降雨量 mm',
+  previous_status   VARCHAR(16) NOT NULL COMMENT '停工前作业状态',
+  stop_reason       VARCHAR(255) NOT NULL COMMENT '停工原因',
+  stopped_at        DATETIME NOT NULL COMMENT '停工起算时刻',
+  rain_at           DATETIME NOT NULL COMMENT '最新降雨时刻/窗口起算时刻',
+  earliest_resume_at DATETIME NOT NULL COMMENT '最早可复工时刻',
+  resumed_at        DATETIME COMMENT '人工确认复工时刻',
+  resume_operator   VARCHAR(32) COMMENT '复工确认人',
+  end_reason        VARCHAR(32) COMMENT '结束原因 RESUMED人工复工/CANCELED取消作业',
+  open_marker       TINYINT GENERATED ALWAYS AS (CASE WHEN resumed_at IS NULL THEN 1 ELSE NULL END) STORED COMMENT '进行中停工标记',
+  UNIQUE KEY uk_rain_stop_open_task (task_id, open_marker),
+  KEY idx_rain_stop_pond_open (pond_id, resumed_at),
+  KEY idx_rain_stop_rain (latest_weather_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收盐作业雨后停工/复工闭环记录';
 
 CREATE TABLE IF NOT EXISTS salt_platform (
   id            BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -93,7 +122,7 @@ CREATE TABLE IF NOT EXISTS equipment (
 
 CREATE TABLE IF NOT EXISTS field_log (
   id          BIGINT AUTO_INCREMENT PRIMARY KEY,
-  log_type    VARCHAR(16) COMMENT '记录类型 BRINE测卤/HARVEST收盐/OUTBOUND出仓/REPAIR修池/INSPECT巡检',
+  log_type    VARCHAR(16) COMMENT '记录类型 BRINE测卤/HARVEST收盐/RAIN_STOP雨情停工/OUTBOUND出仓/REPAIR修池/INSPECT巡检',
   target_type VARCHAR(16) COMMENT '多态关联对象类型 POND池子/PLATFORM坨台/EQUIPMENT设备',
   target_id   BIGINT COMMENT '多态关联对象主键',
   content     VARCHAR(255) COMMENT '记录内容',

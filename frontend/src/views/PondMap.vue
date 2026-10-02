@@ -61,13 +61,27 @@
                 :y="cell.y + 74"
                 text-anchor="middle"
                 :class="textClass(cell.pond.brineDegree) + ' sf-map-sub'"
-              >{{ cell.pond.pondStatusName }} · 深 {{ cell.pond.brineDepth }}cm</text>
+              >{{ cell.pond.rainStopped ? '雨情停工' : cell.pond.effectiveStatusName }} · {{ cell.pond.rainStopped ? formatClock(cell.pond.earliestResumeAt) : `深 ${cell.pond.brineDepth}cm` }}</text>
+              <text
+                v-if="cell.pond.rainStopped"
+                :x="cell.x + cell.w / 2"
+                :y="cell.y + 88"
+                text-anchor="middle"
+                class="sf-map-rain"
+              >雨 {{ Number(cell.pond.rainAmount || 0).toFixed(1) }}mm · {{ cell.pond.stoppedTaskCount }}单</text>
               <circle
                 v-if="cell.pond.boardStatus === 'REPAIR'"
                 :cx="cell.x + cell.w - 14"
                 :cy="cell.y + 14"
                 r="6"
                 fill="#e53935"
+              />
+              <circle
+                v-else-if="cell.pond.rainStopped"
+                :cx="cell.x + cell.w - 14"
+                :cy="cell.y + 14"
+                r="6"
+                fill="#1e88e5"
               />
             </g>
           </g>
@@ -119,7 +133,16 @@
           <el-descriptions-item label="当前卤度">{{ active.brineDegree }} °Bé</el-descriptions-item>
           <el-descriptions-item label="卤水深度">{{ active.brineDepth }} cm</el-descriptions-item>
           <el-descriptions-item label="池板状况">{{ active.boardStatusName }}</el-descriptions-item>
-          <el-descriptions-item label="作业状态">{{ active.pondStatusName }}</el-descriptions-item>
+          <el-descriptions-item label="作业状态">{{ active.rainStopped ? '雨情停工' : active.pondStatusName }}</el-descriptions-item>
+          <template v-if="active.rainStopped">
+            <el-descriptions-item label="停工原因">{{ active.stopReason }}</el-descriptions-item>
+            <el-descriptions-item label="停工起算">{{ formatTime(active.stoppedAt) }}</el-descriptions-item>
+            <el-descriptions-item label="最新降雨">{{ formatTime(active.rainAt) }} / {{ Number(active.rainAmount || 0).toFixed(1) }}mm</el-descriptions-item>
+            <el-descriptions-item label="最早复工">
+              <b style="color: #1565c0">{{ formatTime(active.earliestResumeAt) }}</b>
+            </el-descriptions-item>
+            <el-descriptions-item label="停工作业">{{ active.stoppedTaskCount }} 单（ID：{{ active.stoppedTaskIds.join('、') }}）</el-descriptions-item>
+          </template>
         </el-descriptions>
 
         <el-form label-width="96px" size="default">
@@ -252,6 +275,14 @@ function fmt(v) {
   return v ? String(v).replace('T', ' ') : ''
 }
 
+function formatTime(v) {
+  return v ? fmt(v).slice(0, 16) : '—'
+}
+
+function formatClock(v) {
+  return v ? fmt(v).slice(5, 16) : '—'
+}
+
 function onSvgClick() {
   // 点空白处不关闭抽屉，避免误触
 }
@@ -375,6 +406,13 @@ onMounted(async () => {
 .sf-map-sub {
   font-size: 11px;
   font-weight: 500;
+}
+
+.sf-map-rain {
+  font-size: 10px;
+  font-weight: 700;
+  fill: #e3f2fd;
+  pointer-events: none;
 }
 
 .sf-legend {

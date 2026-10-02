@@ -25,10 +25,14 @@ public class WeatherService {
 
     private final WeatherLogRepository weatherRepository;
     private final PondRepository pondRepository;
+    private final RainControlService rainControlService;
 
-    public WeatherService(WeatherLogRepository weatherRepository, PondRepository pondRepository) {
+    public WeatherService(WeatherLogRepository weatherRepository,
+                          PondRepository pondRepository,
+                          RainControlService rainControlService) {
         this.weatherRepository = weatherRepository;
         this.pondRepository = pondRepository;
+        this.rainControlService = rainControlService;
     }
 
     /** 近 N 天的日汇总（蒸发量 / 降雨量 / 平均卤度 / 是否可收盐） */
@@ -82,23 +86,35 @@ public class WeatherService {
 
     @Transactional
     public WeatherLog create(WeatherCreateRequest request) {
-        Pond pond = pondRepository.findById(request.getPondId())
+        Pond pond = pondRepository.findByIdForUpdate(request.getPondId())
                 .orElseThrow(() -> new BizException("池子不存在：id=" + request.getPondId()));
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime recordedAt = request.getRecordedAt() == null ? now : request.getRecordedAt();
         WeatherLog log = new WeatherLog();
         log.setPondId(pond.getId());
-        log.setRecordDate(request.getRecordDate() == null ? LocalDate.now() : request.getRecordDate());
-        log.setRecordedAt(LocalDateTime.now());
+        log.setRecordDate(request.getRecordDate() == null ? recordedAt.toLocalDate() : request.getRecordDate());
+        log.setRecordedAt(recordedAt);
         log.setBrineDegree(nz(request.getBrineDegree()));
         log.setEvaporation(nz(request.getEvaporation()));
         log.setRainfall(nz(request.getRainfall()));
         log.setTemperature(request.getTemperature());
         log.setWindLevel(request.getWindLevel() == null ? 0 : request.getWindLevel());
-        log.setRecorder(request.getRecorder() == null ? "气象员" : request.getRecorder());
+        log.setRecorder(request.getRecorder() == null || request.getRecorder().isBlank()
+                ? "气象员" : request.getRecorder());
+        if (log.getRainfall().signum() < 0 || log.getEvaporation().signum() < 0) {
+            throw new BizException("降雨量和蒸发量不能为负数");
+        }
         if (log.getBrineDegree().signum() > 0) {
             pond.setBrineDegree(log.getBrineDegree());
             pondRepository.save(pond);
         }
-        return weatherRepository.save(log);
+
+        // 先落库再停工，保证停工/重置记录引用的降雨行可追溯。
+        WeatherLog saved = weatherRepository.saveAndFlush(log);
+        if (saved.getRainfall().signum() > 0) {
+            rainControlService.applyRain(pond, saved);
+        }
+        return saved;
     }
 
     private BigDecimal nz(BigDecimal v) {

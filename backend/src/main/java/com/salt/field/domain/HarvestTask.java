@@ -3,6 +3,8 @@ package com.salt.field.domain;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
+import java.time.LocalDateTime;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -58,9 +60,32 @@ public class HarvestTask {
     @Column(name = "work_mode", length = 16)
     private String workMode;
 
-    /** 状态：PLANNED 待作业 / WORKING 作业中 / DONE 已完成 / CANCELED 已取消 */
+    /** 状态：PLANNED 待作业 / WORKING 作业中 / RAIN_STOPPED 雨情停工 / DONE 已完成 / CANCELED 已取消 */
     @Column(name = "task_status", length = 16)
     private String taskStatus;
+
+    /** 雨情停工前的作业状态，复工后恢复为该状态 */
+    @Column(name = "previous_status", length = 16)
+    private String previousStatus;
+
+    @Column(name = "stopped_at")
+    private LocalDateTime stoppedAt;
+
+    @Column(name = "rain_log_id")
+    private Long rainLogId;
+
+    /** 最近一次有效降雨：24 小时窗口从该记录重新起算 */
+    @Column(name = "rain_weather_id")
+    private Long rainWeatherId;
+
+    @Column(name = "rain_amount", precision = 6, scale = 2)
+    private BigDecimal rainAmount;
+
+    @Column(name = "rain_resume_at")
+    private LocalDateTime rainResumeAt;
+
+    @Column(name = "resumed_at")
+    private LocalDateTime resumedAt;
 
     @Column(name = "operator", length = 32)
     private String operator;

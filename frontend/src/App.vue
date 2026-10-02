@@ -25,7 +25,7 @@
               :class="{ 'is-active': pond.id === activePondId }"
               @click="pickPond(pond.id)"
             >
-              <span class="sf-pond-dot" :style="{ background: statusColor(pond.pondStatus) }"></span>
+              <span class="sf-pond-dot" :style="{ background: statusColor(pond.effectiveStatus || pond.pondStatus) }"></span>
               <span class="sf-pond-no">{{ pond.pondNo }}</span>
               <span class="sf-pond-name">{{ pond.name }}</span>
               <span class="sf-pond-deg">{{ Number(pond.brineDegree || 0).toFixed(1) }}°</span>
@@ -95,8 +95,8 @@
             <span class="sf-chip-deg">{{ Number(pond.brineDegree || 0).toFixed(1) }}°Bé</span>
             <span
               class="sf-chip-status"
-              :style="{ background: statusColor(pond.pondStatus) + '22', color: statusColor(pond.pondStatus) }"
-            >{{ pond.pondStatusName }}</span>
+              :style="{ background: statusColor(pond.effectiveStatus || pond.pondStatus) + '22', color: statusColor(pond.effectiveStatus || pond.pondStatus) }"
+            >{{ pond.effectiveStatusName || pond.pondStatusName }}</span>
           </div>
         </div>
       </div>
@@ -109,7 +109,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { api, brineColor, POND_STATUS_COLOR } from './api'
 import { currentLocation, currentRoute, navigate, routes } from './router'
 
@@ -156,5 +156,12 @@ async function loadAll() {
   }
 }
 
-onMounted(loadAll)
+onMounted(() => {
+  loadAll()
+  window.addEventListener('salt:weather-changed', loadAll)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('salt:weather-changed', loadAll)
+})
 </script>

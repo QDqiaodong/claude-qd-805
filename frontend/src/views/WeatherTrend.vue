@@ -129,6 +129,16 @@
         <el-form-item label="风力">
           <el-input-number v-model="form.windLevel" :min="0" :max="12" />
         </el-form-item>
+        <el-form-item label="记录人">
+          <el-input v-model="form.recorder" placeholder="气象员" />
+        </el-form-item>
+        <el-alert
+          type="warning"
+          :closable="false"
+          show-icon
+          title="降雨量大于 0 会立即停止该池所有待作业/作业中收盐班次；停工期间再次降雨会重新起算 24 小时窗口。"
+          style="margin-top: 8px"
+        />
       </el-form>
       <template #footer>
         <el-button @click="dlg = false">取消</el-button>
@@ -219,6 +229,7 @@ async function submit() {
     ElMessage.success('气象与卤度记录已登记')
     dlg.value = false
     await load()
+    window.dispatchEvent(new CustomEvent('salt:weather-changed'))
   } catch (e) {
     ElMessage.error(e.message)
   }

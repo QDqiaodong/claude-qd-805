@@ -1,6 +1,9 @@
 package com.salt.field.dto;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.salt.field.common.FieldDict;
 
@@ -31,6 +34,16 @@ public class PondVO {
     private Integer gridRow;
     private Integer gridCol;
     private Boolean harvestable;
+    private Boolean rainStopped;
+    private String effectiveStatus;
+    private String effectiveStatusName;
+    private String stopReason;
+    private LocalDateTime rainAt;
+    private BigDecimal rainAmount;
+    private LocalDateTime stoppedAt;
+    private LocalDateTime earliestResumeAt;
+    private Long stoppedTaskCount;
+    private List<Long> stoppedTaskIds = new ArrayList<>();
 
     public static PondVO of(Long id,
                             String pondNo,
@@ -62,9 +75,13 @@ public class PondVO {
         v.pondStatusName = FieldDict.pondStatusName(pondStatus);
         v.gridRow = gridRow;
         v.gridCol = gridCol;
+        v.rainStopped = false;
+        v.effectiveStatus = pondStatus;
+        v.stoppedTaskCount = 0L;
         v.harvestable = !"REPAIR".equals(boardStatus)
                 && brineDegree != null
                 && brineDegree.compareTo(FieldDict.HARVEST_MIN_BRINE) >= 0;
+        v.effectiveStatusName = FieldDict.pondStatusName(v.effectiveStatus);
         return v;
     }
 }

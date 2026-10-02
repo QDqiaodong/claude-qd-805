@@ -41,7 +41,8 @@ public final class FieldDict {
             "SUN", "晒卤",
             "CRYST", "结晶",
             "WAIT", "待收",
-            "REPAIR", "修池");
+            "REPAIR", "修池",
+            "RAIN_STOP", "雨情停工");
 
     /** 盐种 */
     private static final Map<String, String> SALT_TYPE = Map.of(
@@ -58,6 +59,7 @@ public final class FieldDict {
     private static final Map<String, String> TASK_STATUS = Map.of(
             "PLANNED", "待作业",
             "WORKING", "作业中",
+            "RAIN_STOPPED", "雨情停工",
             "DONE", "已完成",
             "CANCELED", "已取消");
 
@@ -71,6 +73,7 @@ public final class FieldDict {
     private static final Map<String, String> LOG_TYPE = Map.of(
             "BRINE", "测卤",
             "HARVEST", "收盐",
+            "RAIN_STOP", "雨情停工",
             "OUTBOUND", "出仓",
             "REPAIR", "修池",
             "INSPECT", "巡检");

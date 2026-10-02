@@ -2,6 +2,9 @@ package com.salt.field.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.salt.field.common.FieldDict;
 
@@ -31,6 +34,17 @@ public class HarvestVO {
     private String workModeName;
     private String taskStatus;
     private String taskStatusName;
+    private String previousStatus;
+    private String previousStatusName;
+    private Boolean rainStopped;
+    private String stopReason;
+    private LocalDateTime stoppedAt;
+    private LocalDateTime rainAt;
+    private BigDecimal rainAmount;
+    private LocalDateTime earliestResumeAt;
+    private LocalDateTime resumedAt;
+    private Boolean canResume;
+    private List<String> resumeBlockers = new ArrayList<>();
     private String operator;
 
     public static HarvestVO of(Long id,
@@ -65,6 +79,8 @@ public class HarvestVO {
         v.workModeName = FieldDict.workModeName(workMode);
         v.taskStatus = taskStatus;
         v.taskStatusName = FieldDict.taskStatusName(taskStatus);
+        v.rainStopped = "RAIN_STOPPED".equals(taskStatus);
+        v.canResume = false;
         v.operator = operator;
         return v;
     }
